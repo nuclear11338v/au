@@ -3,8 +3,7 @@ from transformers import GPT2LMHeadModel, GPT2Tokenizer
 import logging
 
 # Set up logging to see errors in the console
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-                    level=logging.INFO)
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Replace this with your actual bot token
@@ -21,7 +20,7 @@ tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
 def generate_response(prompt: str) -> str:
     # Encode input prompt to token IDs
     inputs = tokenizer.encode(prompt + tokenizer.eos_token, return_tensors="pt")
-    
+
     # Generate response using GPT-2 model
     outputs = model.generate(
         inputs,
@@ -30,8 +29,10 @@ def generate_response(prompt: str) -> str:
         no_repeat_ngram_size=2,  # Avoid repeating the same phrases
         top_p=0.95,  # Top-p sampling for better diversity
         temperature=0.7,  # Control randomness
+        do_sample=True,  # Enable sampling
+        pad_token_id=tokenizer.eos_token_id  # Ensure padding token is set
     )
-    
+
     # Decode the output token IDs to a string
     response = tokenizer.decode(outputs[0], skip_special_tokens=True)
     return response
@@ -45,13 +46,13 @@ def send_welcome(message):
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     user_message = message.text  # Get the user's message
-    
+
     # Generate a response using GPT-2 model
     response_message = generate_response(user_message)
-    
+
     # Send the generated response back to the user
     bot.reply_to(message, response_message)
 
 # Start the bot
 bot.polling()
-
+  
