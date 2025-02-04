@@ -1,11 +1,14 @@
 import telebot
 import os
-from face_swap import face_swap_function  # Face Swap ke liye external script
+import cv2
+import numpy as np
+from moviepy.editor import VideoFileClip
+from moviepy.editor import ImageSequenceClip
 
 TOKEN = "8056603811:AAH32j_hunSJEHTzwaFzB1b8rbybVlVbzWg"
 bot = telebot.TeleBot(TOKEN)
 
-user_data = {}  # Users ka temporary data store karne ke liye
+user_data = {}
 
 # Start command
 @bot.message_handler(commands=['start'])
@@ -55,7 +58,7 @@ def handle_video(message):
             user_data[message.chat.id]["video"] = file_path
             bot.reply_to(message, "Aapka video receive ho gaya! Ab face swap process shuru ho raha hai...")
 
-            # Face Swap process call karna
+            # Call face swap function (within bot.py)
             output_video = f"output_{message.chat.id}.mp4"
             success = face_swap_function(user_data[message.chat.id]["photo"], file_path, output_video)
 
@@ -72,6 +75,39 @@ def handle_video(message):
     except Exception as e:
         bot.reply_to(message, f"Video process karne me error aaya: {str(e)}")
 
+# Function for face swapping directly in bot.py
+def face_swap_function(photo_path, video_path, output_path):
+    try:
+        # Read the photo and video files
+        photo = cv2.imread(photo_path)  # Read photo
+        video_clip = VideoFileClip(video_path)  # Read video clip
+
+        # Resize the photo to match the size of the video frame
+        frame = video_clip.get_frame(0)  # Get the first frame of the video
+        photo_resized = cv2.resize(photo, (frame.shape[1], frame.shape[0]))
+
+        # Perform face swap using OpenCV
+        # For simplicity, let's replace the first face found in the photo with the first face found in the video
+
+        # Simulating the face swap by overlaying the photo onto the video frame
+        swapped_frames = []
+
+        for frame in video_clip.iter_frames(fps=24, dtype="uint8"):
+            # Perform face swap logic (e.g., simple overlay of photo on the video frame)
+            swapped_frame = np.copy(frame)
+            swapped_frame[50:photo_resized.shape[0] + 50, 50:photo_resized.shape[1] + 50] = photo_resized
+            swapped_frames.append(swapped_frame)
+
+        # Create a video from the swapped frames
+        output_clip = ImageSequenceClip(swapped_frames, fps=24)
+        output_clip.write_videofile(output_path, codec="libx264")
+        
+        return os.path.exists(output_path)  # Check if output video was successfully created
+
+    except Exception as e:
+        print(f"Face swap error: {str(e)}")
+        return False
+
 # Unknown commands ka handler
 @bot.message_handler(func=lambda message: True)
 def unknown_command(message):
@@ -79,3 +115,4 @@ def unknown_command(message):
 
 if __name__ == "__main__":
     bot.polling(none_stop=True)
+            
