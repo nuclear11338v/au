@@ -3,13 +3,11 @@ import yt_dlp
 import telebot
 import requests
 import os
-import time
 import re
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Bot Token & YouTube API Key
 TOKEN = '7685491877:AAGCya_bYave_CQm0cyEUNG0hnhRYt1oCsA'
 YOUTUBE_API_KEY = "AIzaSyBcXM10C3POyDSFoLYHspgf2A3ncqnSVO8"
 
@@ -66,6 +64,8 @@ def download_youtube_video(message):
         'outtmpl': 'downloads/%(title)s.%(ext)s',
         'socket_timeout': 14400,
         'http_chunk_size': 1048576,
+        'geo_bypass': True,  # Bypass location-based restrictions
+        'nocheckcertificate': True,  # Skip SSL verification
         'progress_hooks': [lambda d: progress_hook(d, message.chat.id)]
     }
 
