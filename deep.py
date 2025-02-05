@@ -1,58 +1,92 @@
-import telebot
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
 import logging
+import yt_dlp
+import telebot
+import requests
+import os
+import time
+import re
 
-# Set up logging to see errors in the console
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Replace this with your actual bot token
-API_TOKEN = '7685491877:AAGCya_bYave_CQm0cyEUNG0hnhRYt1oCsA'  # Add your bot token here
+# Bot Token & YouTube API Key
+TOKEN = '7685491877:AAGCya_bYave_CQm0cyEUNG0hnhRYt1oCsA'
+YOUTUBE_API_KEY = "AIzaSyBcXM10C3POyDSFoLYHspgf2A3ncqnSVO8"
 
-# Initialize the bot
-bot = telebot.TeleBot(API_TOKEN)
+bot = telebot.TeleBot(TOKEN)
 
-# Load pre-trained GPT-2 model and tokenizer
-model = GPT2LMHeadModel.from_pretrained("gpt2")
-tokenizer = GPT2Tokenizer.from_pretrained("gpt2")
+def get_video_info(video_id):
+    """Fetches video details from YouTube API"""
+    url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id={video_id}&key={YOUTUBE_API_KEY}"
+    response = requests.get(url).json()
+    
+    if "items" in response and len(response["items"]) > 0:
+        return response["items"][0]
+    return None
 
-# Function to generate GPT-2 response
-def generate_response(prompt: str) -> str:
-    # Encode input prompt to token IDs
-    inputs = tokenizer.encode(prompt + tokenizer.eos_token, return_tensors="pt")
+def extract_video_id(url):
+    """Extracts video ID from YouTube URL"""
+    patterns = [
+        r"(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)",
+        r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)"
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    
+    return None
 
-    # Generate response using GPT-2 model
-    outputs = model.generate(
-        inputs,
-        max_length=100,  # Limit the response length
-        num_return_sequences=1,  # Generate one response
-        no_repeat_ngram_size=2,  # Avoid repeating the same phrases
-        top_p=0.95,  # Top-p sampling for better diversity
-        temperature=0.7,  # Control randomness
-        do_sample=True,  # Enable sampling
-        pad_token_id=tokenizer.eos_token_id  # Ensure padding token is set
-    )
+@bot.message_handler(commands=['Dyt'])
+def download_youtube_video(message):
+    url = message.text[5:].strip()
+    if not url:
+        bot.reply_to(message, "❌ Please provide a YouTube video URL.")
+        return
+    
+    video_id = extract_video_id(url)
+    if not video_id:
+        bot.reply_to(message, "⚠️ Invalid YouTube link. Please provide a valid video URL.")
+        return
 
-    # Decode the output token IDs to a string
-    response = tokenizer.decode(outputs[0], skip_special_tokens=True)
-    return response
+    video_info = get_video_info(video_id)
+    if not video_info:
+        bot.reply_to(message, "❌ Failed to retrieve video details. The video may not exist.")
+        return
 
-# Handler for "/start" command
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "Hello! I am your GPT-2 powered chatbot. Ask me anything!")
+    title = video_info["snippet"]["title"]
+    bot.send_message(message.chat.id, f"📥 Downloading: {title}")
 
-# Handler for any other message
-@bot.message_handler(func=lambda message: True)
-def handle_message(message):
-    user_message = message.text  # Get the user's message
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
 
-    # Generate a response using GPT-2 model
-    response_message = generate_response(user_message)
+    ydl_opts = {
+        'format': 'best',
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'socket_timeout': 14400,
+        'http_chunk_size': 1048576,
+        'progress_hooks': [lambda d: progress_hook(d, message.chat.id)]
+    }
 
-    # Send the generated response back to the user
-    bot.reply_to(message, response_message)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info_dict = ydl.extract_info(url, download=True)
+            video_file_path = ydl.prepare_filename(info_dict)
 
-# Start the bot
-bot.polling()
-  
+        with open(video_file_path, 'rb') as video_file:
+            bot.send_video(message.chat.id, video_file, caption="✅ Download complete!")
+        
+        os.remove(video_file_path)
+
+    except Exception as e:
+        bot.reply_to(message, f"❌ Error: {str(e)}")
+
+# Progress updates
+def progress_hook(d, chat_id):
+    if d['status'] == 'downloading':
+        percent = (d.get('downloaded_bytes', 0) / d.get('total_bytes', 1)) * 100
+        bot.send_message(chat_id, f"⬇️ Downloading... {percent:.2f}% completed")
+
+bot.infinity_polling()
+        
