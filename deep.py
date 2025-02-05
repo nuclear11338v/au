@@ -1,92 +1,72 @@
-import logging
-import yt_dlp
 import telebot
-import requests
 import os
-import re
+import subprocess
+import threading
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+API_TOKEN = '7685491877:AAGCya_bYave_CQm0cyEUNG0hnhRYt1oCsA'
+bot = telebot.TeleBot(API_TOKEN)
 
-TOKEN = '7685491877:AAGCya_bYave_CQm0cyEUNG0hnhRYt1oCsA'
-YOUTUBE_API_KEY = "AIzaSyBcXM10C3POyDSFoLYHspgf2A3ncqnSVO8"
+# Start command handler
+@bot.message_handler(commands=['start'])
+def start_command(message):
+    bot.reply_to(message, "👋 Welcome to Video to Audio Converter Bot!\n\nSend a video and I'll convert it to audio for you.")
 
-bot = telebot.TeleBot(TOKEN)
+# Help command handler
+@bot.message_handler(commands=['help'])
+def help_command(message):
+    help_text = (
+        "🛠 Available Commands:\n"
+        "/start - Welcome message\n"
+        "/help - List of available commands\n"
+        "/support - Get support information\n"
+        "Simply send a video to convert it into audio!"
+    )
+    bot.reply_to(message, help_text)
 
-def get_video_info(video_id):
-    """Fetches video details from YouTube API"""
-    url = f"https://www.googleapis.com/youtube/v3/videos?part=snippet,contentDetails&id={video_id}&key={YOUTUBE_API_KEY}"
-    response = requests.get(url).json()
-    
-    if "items" in response and len(response["items"]) > 0:
-        return response["items"][0]
-    return None
+# Support command handler
+@bot.message_handler(commands=['support'])
+def support_command(message):
+    bot.reply_to(message, "📞 For support, please contact @MR_ARMAN_OWNER or visit our support group: @ARMANTEAMVIP")
 
-def extract_video_id(url):
-    """Extracts video ID from YouTube URL"""
-    patterns = [
-        r"(?:https?:\/\/)?(?:www\.)?youtu\.be\/([a-zA-Z0-9_-]+)",
-        r"(?:https?:\/\/)?(?:www\.)?youtube\.com\/watch\?v=([a-zA-Z0-9_-]+)"
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            return match.group(1)
-    
-    return None
-
-@bot.message_handler(commands=['Dyt'])
-def download_youtube_video(message):
-    url = message.text[5:].strip()
-    if not url:
-        bot.reply_to(message, "❌ Please provide a YouTube video URL.")
-        return
-    
-    video_id = extract_video_id(url)
-    if not video_id:
-        bot.reply_to(message, "⚠️ Invalid YouTube link. Please provide a valid video URL.")
-        return
-
-    video_info = get_video_info(video_id)
-    if not video_info:
-        bot.reply_to(message, "❌ Failed to retrieve video details. The video may not exist.")
-        return
-
-    title = video_info["snippet"]["title"]
-    bot.send_message(message.chat.id, f"📥 Downloading: {title}")
-
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
-
-    ydl_opts = {
-        'format': 'best',
-        'outtmpl': 'downloads/%(title)s.%(ext)s',
-        'socket_timeout': 14400,
-        'http_chunk_size': 1048576,
-        'geo_bypass': True,  # Bypass location-based restrictions
-        'nocheckcertificate': True,  # Skip SSL verification
-        'progress_hooks': [lambda d: progress_hook(d, message.chat.id)]
-    }
+# Handle Video and Process in a separate thread to speed up
+def process_video(message, video_file_id):
+    video = bot.get_file(video_file_id)
+    video_file_path = f'{video_file_id}.mp4'
 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info_dict = ydl.extract_info(url, download=True)
-            video_file_path = ydl.prepare_filename(info_dict)
+        downloaded_file = bot.download_file(video.file_path)
+        with open(video_file_path, 'wb') as new_file:
+            new_file.write(downloaded_file)
 
-        with open(video_file_path, 'rb') as video_file:
-            bot.send_video(message.chat.id, video_file, caption="✅ Download complete!")
-        
+        bot.reply_to(message, "🔄 Processing your video, please wait...")
+
+        if os.path.getsize(video_file_path) > 300 * 1024 * 1024:
+            bot.reply_to(message, "❌ Sorry, the video size exceeds 300MB.")
+            os.remove(video_file_path)
+            return
+
+        audio_file_path = f'{video_file_id}.mp3'
+        command = f'ffmpeg -i "{video_file_path}" -q:a 0 -map a "{audio_file_path}" -threads 4 -preset fast'
+        subprocess.run(command, shell=True)
+
+        bot.send_chat_action(message.chat.id, 'upload_audio')
+        with open(audio_file_path, 'rb') as audio:
+            bot.send_audio(message.chat.id, audio, caption="DOWNLOADED BYE @Sidgkdigdjgzigdotxotbot")
+
         os.remove(video_file_path)
+        os.remove(audio_file_path)
+
+        bot.send_message(message.chat.id, "👉 PLEASE JOIN : @ARMANTEAMVIP\n\nDEVELOPER @MR_ARMAN_OWNER")
 
     except Exception as e:
-        bot.reply_to(message, f"❌ Error: {str(e)}")
+        bot.reply_to(message, "⚠️ An error occurred during processing. Please try again later.")
+        print(f"Error: {e}")
 
-# Progress updates
-def progress_hook(d, chat_id):
-    if d['status'] == 'downloading':
-        percent = (d.get('downloaded_bytes', 0) / d.get('total_bytes', 1)) * 100
-        bot.send_message(chat_id, f"⬇️ Downloading... {percent:.2f}% completed")
 
-bot.infinity_polling()
-        
+@bot.message_handler(content_types=['video'])
+def handle_video(message):
+    video_file_id = message.video.file_id
+    threading.Thread(target=process_video, args=(message, video_file_id)).start()  # Process video in a new thread
+
+# Polling
+bot.polling()
