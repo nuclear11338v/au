@@ -6,6 +6,7 @@ import os
 import requests
 from instaloader import Instaloader, Post
 from telebot import types
+import subprocess
 
 # Logging setup
 logging.basicConfig(format="%(asctime)s - %(message)s", level=logging.INFO)
@@ -78,16 +79,49 @@ def download_file(url, file_name, retries=3):
             time.sleep(5)
     return False
 
-# Command: Start
+from telebot import types
+
 @bot.message_handler(commands=["start"])
 def start(message):
-    bot.reply_to(
-        message,
-        "👋 Welcome to the Instagram Downloader Bot!\n\n"
-        "📩 Send me any **public** Instagram link (reels, posts, etc.), and I'll help you download it.\n\n"
-        "⚠️ Only public posts are supported!"
+    chat_id = message.chat.id
+    user_name = message.from_user.username or "No Username"
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name or "Unknown"
+
+    # Step 1: Send "⌛" and delete after 2 seconds
+    temp_msg = bot.send_message(chat_id, "⌛")
+    time.sleep(2)
+    bot.delete_message(chat_id, temp_msg.message_id)
+
+    # Step 2: Show typing animation
+    bot.send_chat_action(chat_id, "typing")
+    time.sleep(1.5)  # Simulate typing delay
+
+    # Step 3: Prepare welcome message
+    caption_text = (
+        f"👋 **Welcome to the Instagram Downloader Bot!**\n\n"
+        f"🆔 **YOUR NAME** - `@{user_name}`\n"
+        f"🆔 **YOUR ID** - `{user_id}`\n"
+        f"🆔 **FIRST NAME** - `{first_name}`\n\n"
+        "📩 **Send me any public Instagram link** (Reels, Posts, etc.), and I'll help you download it.\n\n"
+        "⚠️ **Only public posts are supported!**"
     )
 
+    # Step 4: Create Inline Keyboard with Buttons
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("➕ Add Me to Your Group", url=f"https://t.me/{bot.get_me().username}?startgroup=true"))
+    keyboard.add(types.InlineKeyboardButton("📢 Join", url="https://t.me/ARMANTEAMVIP"))
+    keyboard.add(types.InlineKeyboardButton("👨‍💻 Developer", url="https://t.me/MR_ARMAN_OWNER"))
+
+    # Step 5: Fetch user's profile photo (if available)
+    photos = bot.get_user_profile_photos(user_id)
+    if photos.total_count > 0:
+        # Get the highest resolution photo
+        photo = photos.photos[0][-1].file_id
+        bot.send_photo(chat_id, photo, caption=caption_text, parse_mode="Markdown", reply_markup=keyboard)
+    else:
+        bot.send_message(chat_id, caption_text, parse_mode="Markdown", reply_markup=keyboard)
+        
 # Command: Users (Admin only)
 @bot.message_handler(commands=["users"])
 def list_users(message):
@@ -179,7 +213,55 @@ def download_content(message):
         )
         bot.send_message(ADMIN_ID, admin_message)
 
+# Support command handler
+@bot.message_handler(commands=['support'])
+def support_command(message):
+    bot.reply_to(message, "📞 For support, please contact @MR_ARMAN_OWNER or visit our support group: @ARMANTEAMVIP")
+
+# Handle Video and Process in a separate thread to speed up
+def process_video(message, video_file_id):
+    video = bot.get_file(video_file_id)
+    video_file_path = f'{video_file_id}.mp4'
+
+    try:
+        downloaded_file = bot.download_file(video.file_path)
+        with open(video_file_path, 'wb') as new_file:
+            new_file.write(downloaded_file)
+
+        bot.reply_to(message, "🔄 Processing your video, please wait...")
+
+        if os.path.getsize(video_file_path) > 300 * 1024 * 1024:
+            bot.reply_to(message, "❌ Sorry, the video size exceeds 300MB.")
+            os.remove(video_file_path)
+            return
+
+        audio_file_path = f'{video_file_id}.mp3'
+        command = f'ffmpeg -i "{video_file_path}" -q:a 0 -map a "{audio_file_path}" -threads 4 -preset fast'
+        subprocess.run(command, shell=True)
+
+        bot.send_chat_action(message.chat.id, 'upload_audio')
+        with open(audio_file_path, 'rb') as audio:
+            bot.send_audio(message.chat.id, audio, caption="DOWNLOADED BYE @Sidgkdigdjgzigdotxotbot")
+
+        os.remove(video_file_path)
+        os.remove(audio_file_path)
+
+        bot.send_message(message.chat.id, "👉 PLEASE JOIN : @ARMANTEAMVIP\n\nDEVELOPER @MR_ARMAN_OWNER")
+
+    except Exception as e:
+        bot.reply_to(message, "⚠️ An error occurred during processing. Please try again later.")
+        print(f"Error: {e}")
+
+
+@bot.message_handler(content_types=['video'])
+def handle_video(message):
+    video_file_id = message.video.file_id
+    threading.Thread(target=process_video, args=(message, video_file_id)).start()  # Process video in a new thread
+    
+    
 # Main function
 if __name__ == "__main__":
     logger.info("Bot is running...")
     bot.infinity_polling()
+
+
