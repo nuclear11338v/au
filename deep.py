@@ -7,7 +7,7 @@ import os
 import json
 
 # Replace with your actual bot token
-TOKEN = '7565333563:AAGpQOK23m_OezCrG7pv-ajBoQ_qOJe7nrU'
+TOKEN = '7056119124:AAFXyI0gFTehd_wC-Hj2bqbJoAcze_ekENk'
 bot = telebot.TeleBot(TOKEN)
 
 # Admin Owner ID
