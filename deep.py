@@ -139,6 +139,10 @@ def set_channel_id(message):
     else:
         bot.send_message(chat_id, "⚠️ This channel is already registered.")
 
+def get_user_ids():
+    with open("user_ids.txt", "r") as file:
+        return file.readlines()
+        
 # Broadcast Messages (Admin Only)
 @bot.message_handler(commands=['broadcast'])
 def handle_broadcast(message):
