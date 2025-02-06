@@ -1,151 +1,219 @@
+from telebot import types
 import telebot
-import os
-import subprocess
+import schedule
+import time
 import threading
+import os
+import json
 
-API_TOKEN = '7685491877:AAGCya_bYave_CQm0cyEUNG0hnhRYt1oCsA'
-bot = telebot.TeleBot(API_TOKEN)
+# Replace with your actual bot token
+TOKEN = '7565333563:AAGpQOK23m_OezCrG7pv-ajBoQ_qOJe7nrU'
+bot = telebot.TeleBot(TOKEN)
 
-ADMIN_ID = 7858368373  # Replace with your admin ID
-USER_IDS_FILE = "user_id.txt"
+# Admin Owner ID
+OWNER_ID = '7858368373'
 
-# Function to save user IDs
-def save_user(user_id):
-    with open(USER_IDS_FILE, "a+") as file:
-        file.seek(0)
-        users = file.read().splitlines()
-        if str(user_id) not in users:
-            file.write(f"{user_id}\n")
+# Store user and channel IDs
+user_ids = []
+channel_ids = []
 
-# Start command handler
+# File paths
+WARNINGS_FILE = "warnings.json"
+USER_IDS_FILE = "user_ids.txt"
+CHANNEL_IDS_FILE = "channel_ids.txt"
+
+# Load user IDs
+def load_ids(file_path):
+    if os.path.exists(file_path):
+        with open(file_path, "r") as f:
+            return [int(line.strip()) for line in f.readlines()]
+    return []
+
+# Save user IDs
+def save_ids(file_path, ids):
+    with open(file_path, "w") as f:
+        for _id in ids:
+            f.write(f"{_id}\n")
+
+# Load Data
+user_ids = load_ids(USER_IDS_FILE)
+channel_ids = load_ids(CHANNEL_IDS_FILE)
+
+# Load Warnings
+if os.path.exists(WARNINGS_FILE):
+    with open(WARNINGS_FILE, "r") as f:
+        warnings = json.load(f)
+else:
+    warnings = {}
+
+# Save Warnings
+def save_warnings():
+    with open(WARNINGS_FILE, "w") as f:
+        json.dump(warnings, f, indent=4)
+
+# Check if User is Admin
+def is_admin(chat_id, user_id):
+    try:
+        chat_admins = bot.get_chat_administrators(chat_id)
+        return any(admin.user.id == user_id for admin in chat_admins)
+    except:
+        return False
+
+# Function to send scheduled messages
+def send_scheduled_message(photo_url, caption):
+    for chat_id in user_ids + channel_ids:
+        try:
+            bot.send_photo(chat_id, photo_url, caption=caption)
+        except:
+            pass
+
+# Scheduled Message Functions
+def send_good_morning():
+    send_scheduled_message("https://graph.org/file/bf067788a313dde08c58f-48a5aff2c2ed5a785a.jpg",
+                           "🌞 Good morning! 🌼✨\n\nWishing you a day filled with positivity and joy. 🌈\nMay every moment bring you a reason to smile 😊\nand each challenge be an opportunity to grow. 🌟\n\nRemember, today is a blank canvas—paint it beautifully! 🎨\nHave an amazing day ahead! 💖")
+
+def send_good_afternoon():
+    send_scheduled_message("https://graph.org/file/767bfc3f0cb2d61ab2882-c01696337a5e17b55b.jpg",
+                           "☀️ Good afternoon! 🌻\n\nI hope your day is going wonderfully! 🌈\nTake a moment to breathe deeply, appreciate\nthe little things, and keep pushing forward. 💪\nYou've got this! 🌟\nEnjoy the rest of your day! 😃")
+
+def send_good_night():
+    send_scheduled_message("https://graph.org/file/75bde7e75cf97addc3f1b-1957d73f6aed105c63.jpg",
+                           "🌙 Good night! 😴\n\nAs the day comes to a close, take a moment\nto reflect on all the wonderful things that happened. 🌟\nMay your dreams be sweet and your rest be peaceful. 💤\nRemember, tomorrow is a new opportunity to shine! 🌅\nSleep well! 💖")
+
+# Schedule Messages
+def schedule_messages():
+    schedule.every().day.at("06:00").do(send_good_morning)
+    schedule.every().day.at("14:00").do(send_good_afternoon)
+    schedule.every().day.at("23:59").do(send_good_night)
+
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
+
+# Start schedule in a separate thread
+threading.Thread(target=schedule_messages, daemon=True).start()
+
+# Start Command
 @bot.message_handler(commands=['start'])
-def start_command(message):
-    save_user(message.from_user.id)
-    bot.reply_to(message, "👋 Welcome to Video to Audio Converter Bot!\n\nSend a video and I'll convert it to audio for you.")
+def start(message):
+    chat_id = message.chat.id
+    chat_type = message.chat.type
 
-# Help command handler
-@bot.message_handler(commands=['help'])
-def help_command(message):
-    help_text = (
-        "🛠 Available Commands:\n"
-        "/start - Welcome message\n"
-        "/help - List of available commands\n"
-        "/support - Get support information\n"
-        "/users - Show all users (Admin Only)\n"
-        "/broadcast - Send message to all users (Admin Only)\n"
-        "Simply send a video to convert it into audio!"
-    )
-    bot.reply_to(message, help_text)
+    if chat_type in ['supergroup', 'group', 'channel']:
+        if chat_id not in channel_ids:
+            channel_ids.append(chat_id)
+            save_ids(CHANNEL_IDS_FILE, channel_ids)
+            bot.send_message(chat_id, "✅ This channel/group has been added for scheduled messages.")
+    else:
+        if chat_id not in user_ids:
+            user_ids.append(chat_id)
+            save_ids(USER_IDS_FILE, user_ids)
 
-# Support command handler
-@bot.message_handler(commands=['support'])
-def support_command(message):
-    bot.reply_to(message, "📞 For support, contact @MR_ARMAN_OWNER or visit @ARMANTEAMVIP")
+    keyboard = types.InlineKeyboardMarkup()
+    keyboard.add(types.InlineKeyboardButton("➕ Add Me to Your Group", url=f"https://t.me/{bot.get_me().username}?startgroup=true"))
+    keyboard.add(types.InlineKeyboardButton("📢 Support", url="https://t.me/MR_ARMAN_OWNER"))
 
-# Notify admin about user conversion
-def notify_admin(user, status):
-    try:
-        bot.send_message(
-            ADMIN_ID,
-            f"*New user convert*\n"
-            f"User name: @{user.username if user.username else 'No Username'}\n"
-            f"User ID: {user.id}\n"
-            f"User converts: Yes\n"
-            f"User converting: {status}",
-            parse_mode="Markdown"
-        )
-    except Exception as e:
-        print(f"Admin notification failed: {e}")
+    bot.send_message(chat_id, "👋 Welcome to **TimeWiseBot**!\n\n"
+                              "I send **daily greetings** and can **moderate abusive words** in groups.\n"
+                              "To register a channel for greetings, use:\n\n"
+                              "`/set -100xxxxxxxxx`\n\n"
+                              "Admins can use moderation commands like `/mute`, `/unmute`, and `/warn`.",
+                     parse_mode="Markdown", reply_markup=keyboard)
 
-# Process video
-def process_video(message, video_file_id):
-    user = message.from_user
-    video = bot.get_file(video_file_id)
-    video_file_path = f'{video_file_id}.mp4'
+# Add Channel ID
+@bot.message_handler(commands=['set'])
+def set_channel_id(message):
+    chat_id = message.chat.id
+    command = message.text.split()
 
-    try:
-        downloaded_file = bot.download_file(video.file_path)
-        with open(video_file_path, 'wb') as new_file:
-            new_file.write(downloaded_file)
+    if len(command) < 2:
+        bot.send_message(chat_id, "❌ Please provide a valid channel ID.\nExample: `/set -1002342033433`", parse_mode="Markdown")
+        return
 
-        bot.reply_to(message, "🔄 Processing your video, please wait...")
+    channel_id = int(command[1].strip())
 
-        if os.path.getsize(video_file_path) > 20 * 1024 * 1024:
-            bot.reply_to(message, "❌ Sorry, the video size exceeds 20MB.")
-            os.remove(video_file_path)
-            notify_admin(user, "failed")
-            return
+    if channel_id not in channel_ids:
+        channel_ids.append(channel_id)
+        save_ids(CHANNEL_IDS_FILE, channel_ids)
+        bot.send_message(chat_id, "✅ Channel ID saved successfully!")
+    else:
+        bot.send_message(chat_id, "⚠️ This channel is already registered.")
 
-        audio_file_path = f'{video_file_id}.mp3'
-        command = f'ffmpeg -i "{video_file_path}" -q:a 0 -map a "{audio_file_path}" -threads 4 -preset fast'
-        subprocess.run(command, shell=True)
+# Broadcast Messages (Admin Only)
+@bot.message_handler(commands=['broadcast'])
+def handle_broadcast(message):
+    if str(message.from_user.id) == OWNER_ID:
+        bot.send_message(message.chat.id, "Please send the broadcast message or a photo with a caption (if no caption, just send the photo).")
+        bot.register_next_step_handler(message, process_broadcast)
+    else:
+        bot.send_message(message.chat.id, "You are not authorized.")
 
-        bot.send_chat_action(message.chat.id, 'upload_audio')
-        with open(audio_file_path, 'rb') as audio:
-            bot.send_audio(message.chat.id, audio, caption="DOWNLOADED BY @Sidgkdigdjgzigdotxotbot")
+def process_broadcast(message):
+    user_ids = get_user_ids()
+    
+    if message.content_type == 'text':
+        # Send text broadcast
+        text = message.text
+        for user_id in user_ids:
+            try:
+                bot.send_message(user_id.strip(), text)
+            except Exception as e:
+                print(f"Failed to send to {user_id.strip()}: {e}")
+    elif message.content_type == 'photo':
+        # Send photo broadcast
+        caption = message.caption if message.caption else None
+        photo = message.photo[-1].file_id  # Get the highest quality photo
+        for user_id in user_ids:
+            try:
+                bot.send_photo(user_id.strip(), photo, caption=caption)
+            except Exception as e:
+                print(f"Failed to send to {user_id.strip()}: {e}")
 
-        os.remove(video_file_path)
-        os.remove(audio_file_path)
+#_&₹_____
 
-        bot.send_message(message.chat.id, "👉 PLEASE JOIN: @ARMANTEAMVIP\n\nDEVELOPER: @MR_ARMAN_OWNER")
-        notify_admin(user, "successfully")
-
-    except Exception as e:
-        bot.reply_to(message, "⚠️ An error occurred during processing. Please try again later.")
-        print(f"Error: {e}")
-        notify_admin(user, "failed")
-
-@bot.message_handler(content_types=['video'])
-def handle_video(message):
-    save_user(message.from_user.id)
-    video_file_id = message.video.file_id
-    threading.Thread(target=process_video, args=(message, video_file_id)).start()
-
-# Show all users (Admin Only)
+# List Users (Admin Only)
 @bot.message_handler(commands=['users'])
 def show_users(message):
-    if message.from_user.id == ADMIN_ID:
-        try:
-            with open(USER_IDS_FILE, "r") as file:
-                user_ids = file.read().splitlines()
-
-            if user_ids:
-                user_list = "\n".join([f"ID: {uid}" for uid in set(user_ids)])
-                bot.send_message(message.chat.id, f"👥 *Users List:*\n\n{user_list}", parse_mode="Markdown")
-            else:
-                bot.send_message(message.chat.id, "No users found.")
-        except FileNotFoundError:
-            bot.send_message(message.chat.id, "No users found.")
+    if str(message.from_user.id) == OWNER_ID:
+        user_list = "\n".join([f"ID: {uid}" for uid in user_ids])
+        bot.send_message(message.chat.id, f"**Registered Users:**\n{user_list}", parse_mode="Markdown")
     else:
-        bot.reply_to(message, "❌ You are not authorized to view this list.")
+        bot.send_message(message.chat.id, "❌ You are not authorized.")
 
-# Broadcast message (Admin Only)
-@bot.message_handler(commands=['broadcast'])
-def broadcast_message(message):
-    if message.from_user.id == ADMIN_ID:
-        bot.send_message(message.chat.id, "📢 Please enter your message to broadcast.")
-        bot.register_next_step_handler(message, send_broadcast)
+# Abusive Words Protection
+ABUSIVE_WORDS = ["mc", "bc", "bhosdike", "madarchod", "chutiya", "gandu"]
+
+@bot.message_handler(func=lambda message: any(word in message.text.lower() for word in ABUSIVE_WORDS))
+def handle_abusive_message(message):
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+
+    bot.delete_message(chat_id, message.message_id)
+
+    warnings[str(user_id)] = warnings.get(str(user_id), 0) + 1
+    save_warnings()
+
+    if warnings[str(user_id)] >= 3:
+        bot.restrict_chat_member(chat_id, user_id, can_send_messages=False)
+        bot.send_message(chat_id, f"🚫 **User Muted!**\n\n{message.from_user.first_name} has been muted for abusive language!")
     else:
-        bot.reply_to(message, "❌ You are not authorized to use this command.")
+        bot.send_message(chat_id, f"⚠️ **Warning {warnings[str(user_id)]}/3** - Stop using abusive words!")
 
-def send_broadcast(message):
-    try:
-        with open(USER_IDS_FILE, "r") as file:
-            user_ids = file.read().splitlines()
+# Admin Commands
+@bot.message_handler(commands=['mute'])
+def mute_user(message):
+    if is_admin(message.chat.id, message.from_user.id):
+        user_id = message.reply_to_message.from_user.id
+        bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=False)
+        bot.send_message(message.chat.id, "✅ User has been muted.")
 
-        success, failed = 0, 0
-        for user_id in set(user_ids):
-            try:
-                bot.send_message(user_id, f"📢 *Broadcast Message:*\n\n{message.text}", parse_mode="Markdown")
-                success += 1
-            except Exception:
-                failed += 1
+@bot.message_handler(commands=['unmute'])
+def unmute_user(message):
+    if is_admin(message.chat.id, message.from_user.id):
+        user_id = message.reply_to_message.from_user.id
+        bot.restrict_chat_member(message.chat.id, user_id, can_send_messages=True)
+        bot.send_message(message.chat.id, "✅ User has been unmuted.")
 
-        bot.send_message(message.chat.id, f"✅ Message sent to {success} users.\n❌ Failed: {failed}")
-
-    except FileNotFoundError:
-        bot.send_message(message.chat.id, "No users found.")
-
-# Start polling
-bot.polling(non_stop=True)
-                               
+# Start Bot
+bot.polling()
+        
